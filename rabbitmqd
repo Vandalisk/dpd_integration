@@ -1,0 +1,39 @@
+#!/usr/bin/env ruby
+
+require File.expand_path('../../config/environment', __FILE__)
+require_relative '../config/boot'
+
+Dante.run('rabbitmq') do |opts|
+  Rails.logger = Logger.new(STDOUT)
+
+  $bunny_connection.with do |connection|
+    Rails.logger.info "Created new RabbitMQ connection"
+
+    connection.start
+    Rails.logger.info "Started RabbitMQ"
+
+    @channel = connection.create_channel
+    Rails.logger.info "Created channel RabbitMQ"
+
+    exchange = @channel.topic("bcd-dpd", durable: true)
+    Rails.logger.info "Created exchange bcd-dpd"
+
+    queue = @channel.queue('bcd-queue', durable: true)
+    queue.bind(exchange, routing_key: 'bcd.*')
+    Rails.logger.info "Created queue bcd-queue and binded to 'bcd.*'"
+
+    Rails.logger.info "Listening to messages from DPD..."
+
+    queue.subscribe(block: true) do |delivery_info, metadata, payload|
+      Rails.logger.info '='*50
+      Rails.logger.info "Got from DPD"
+      Rails.logger.info '='*50
+      Rails.logger.info "Routing key: #{delivery_info.routing_key}"
+      Rails.logger.info "Data: #{payload}"
+      data = JSON.parse payload
+      FromDPD::AbstractHandler.handle(data, delivery_info.routing_key)
+      Rails.logger.info '='*50
+      Rails.logger.info "Listening to messages from DPD..."
+    end
+  end
+end
