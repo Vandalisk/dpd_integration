@@ -1,1 +1,1 @@
-Integration with outer application using Rabbit and Ruby.
+Integration with external application using Rabbit and Ruby.
