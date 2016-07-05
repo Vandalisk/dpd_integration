@@ -7,12 +7,15 @@ class FromDPD::Treatments::UpdateTreatmentHandler < FromDPD::BaseHandler
   ALL_STATUSES = ['new', 'requested', 'active', 'from_dpd'].freeze
 
   def handle
-    ActiveRecord::Base.transaction do
-      return output_error(IDS_WRONG_FORMAT) unless !!valid_id?
-      return output_error(NOT_IN_DATABASE) unless treatment
-      treatment.assign_attributes(data)
-      return output_error(treatment.errors.full_messages.join("\n")) unless treatment.valid?
-      ALL_STATUSES.include?(treatment.status_was) ? check_and_update : output_error(WRONG_STATUS)
+    super do
+      ActiveRecord::Base.transaction do
+        return output_error(IDS_WRONG_FORMAT) unless !!valid_id?
+        return output_error(NOT_IN_DATABASE) unless treatment
+        raise ActiveRecord::Rollback if treatment.version != data['version'].to_i - 1
+        treatment.assign_attributes(data)
+        return output_error(treatment.errors.full_messages.join("\n")) unless treatment.valid?
+        ALL_STATUSES.include?(treatment.status_was) ? check_and_update : output_error(WRONG_STATUS)
+      end
     end
   end
 
@@ -31,6 +34,7 @@ class FromDPD::Treatments::UpdateTreatmentHandler < FromDPD::BaseHandler
     else
       move_current_create_new
     end
+    @response_text = SUCCESS
     Rails.logger.info SUCCESSFULLY_UPDATED
   end
 
@@ -44,7 +48,7 @@ class FromDPD::Treatments::UpdateTreatmentHandler < FromDPD::BaseHandler
   end
 
   def move_current_to_history!
-    if treatment.decline!
+    if treatment.decline! && treatment.update_column(:version, treatment.version + 1)
       Rails.logger.info "Treatment with id #{treatment.id} successfully moved to history"
     else
       output_error "Something went wrong, treatment with id #{treatment.id} hasn't been declined"
@@ -74,8 +78,8 @@ class FromDPD::Treatments::UpdateTreatmentHandler < FromDPD::BaseHandler
   def shape_data
     sender = User.find_by(first_name: @payload['sender'])
 
-    @payload['sender_id'] = sender.id if sender
     @payload['dpd_id'] = @payload.delete('id')
+    @payload['sender_id'] = sender.id if sender
     @payload['dpd_dosage'] = @payload['dosage']
     @payload['date_end'] = check_time @payload['date_end']
     @payload['date_start'] = check_time @payload['date_start']

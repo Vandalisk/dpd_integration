@@ -1,5 +1,12 @@
 class FromDPD::Messages::MessageHandler < FromDPD::BaseHandler
   def handle
+    super do
+      send_message
+      @response_text = SUCCESS
+    end
+  end
+
+  def send_message
     DPDMessageSender.send(response, generate_routing_key)
   end
 
